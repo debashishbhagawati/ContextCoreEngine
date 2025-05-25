@@ -1,0 +1,60 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Environment variables
+.env
+
+# VSCode settings
+.vscode/
+
+# macOS files
+.DS_Store
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Pytest
+.cache/
+.pytest_cache/
+
+# MyPy
+.mypy_cache/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# Logs
+*.log
+
+# Python egg
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Temporary files
+*.swp
+*.bak
+*.tmp
+
+# Other IDE configs
+.idea/
+
+# Copilot chat cache
+*.copilot/
+
+# Blackbox logs or debug logs
+.blackbox/
+logs/
+
+# Output files
+*.out
