@@ -50,7 +50,7 @@ def get_response(prompt, history_context, parent_id=None):
 
 def BotOperator():
     st.set_page_config(page_title="Chatbot", layout="wide")
-    st.title("💬 Chatbot with Custom Context Handling")
+    st.title("💬 Context Core Engine")
 
     mode = st.sidebar.selectbox(
         "Choose Context Mode",
