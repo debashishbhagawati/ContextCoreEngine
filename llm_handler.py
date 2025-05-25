@@ -2,10 +2,12 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
+
 from context_handler.sliding_window import SlidingWindowContext
 from context_handler.summarizing_window import SummarizingWindowContext
 from context_handler.conversation_tree_context import ConversationTreeContext
 from context_handler.embedding_retrieval import EmbeddingRetrievalContext
+from context_handler.hybrid_context import HybridContextHandler
 
 load_dotenv()
 api_key = os.getenv('API_KEY')
@@ -16,20 +18,38 @@ def get_context_handler(mode, context_length=10, min_summary_length=10, max_summ
     if mode == "Sliding Window":
         return SlidingWindowContext(max_turns=context_length)
     elif mode == "Summarizing Window":
-        return SummarizingWindowContext(max_turns=context_length, summary_min_length=min_summary_length, summary_max_length=max_summary_length)
+        return SummarizingWindowContext(
+            max_turns=context_length,
+            summary_min_length=min_summary_length,
+            summary_max_length=max_summary_length,
+        )
     elif mode == "Conversation Tree":
         return ConversationTreeContext(depth=context_length)
     elif mode == "Embedding Retrieval":
         return EmbeddingRetrievalContext(max_recent_turns=context_length, top_k=10)
+    elif mode == "Hybrid":
+        return HybridContextHandler(
+            max_recent_turns=context_length,
+            top_k=10,
+            summary_min_length=min_summary_length,
+            summary_max_length=max_summary_length,
+            tree_depth=context_length,
+        )
     return SlidingWindowContext(max_turns=context_length)
 
 def get_response(prompt, history_context, parent_id=None):
     is_tree = isinstance(history_context, ConversationTreeContext)
     is_embedding = isinstance(history_context, EmbeddingRetrievalContext)
+    is_hybrid = isinstance(history_context, HybridContextHandler)
 
-    if is_tree:
+    # For ConversationTreeContext and HybridContextHandler, support parent_id/tagging
+    if is_tree or is_hybrid:
         history_context.add_turn({"role": "user", "parts": [prompt]}, parent_id=parent_id)
-        chat_history = history_context.get_context(from_message_id=history_context.last_message_id)
+        if is_tree:
+            chat_history = history_context.get_context(from_message_id=history_context.last_message_id)
+        else:
+            # For Hybrid, pass parent_id if tree structure is part of hybrid
+            chat_history = history_context.get_context(prompt, parent_id=parent_id)
         chat = model.start_chat(history=chat_history)
     elif is_embedding:
         history_context.add_turn({"role": "user", "parts": [prompt]})
@@ -41,8 +61,9 @@ def get_response(prompt, history_context, parent_id=None):
 
     response = chat.send_message(prompt)
 
-    if is_tree:
-        history_context.add_turn({"role": "model", "parts": [response.text]}, parent_id=history_context.last_message_id)
+    if is_tree or is_hybrid:
+        # For tree and hybrid, tag model response to the same parent
+        history_context.add_turn({"role": "model", "parts": [response.text]}, parent_id=parent_id)
     else:
         history_context.add_turn({"role": "model", "parts": [response.text]})
 
@@ -50,11 +71,17 @@ def get_response(prompt, history_context, parent_id=None):
 
 def BotOperator():
     st.set_page_config(page_title="Chatbot", layout="wide")
-    st.title("💬 Context Core Engine")
+    st.title("🧠 Context Core Engine")
 
     mode = st.sidebar.selectbox(
         "Choose Context Mode",
-        ["Sliding Window", "Summarizing Window", "Conversation Tree", "Embedding Retrieval"]
+        [
+            "Sliding Window",
+            "Summarizing Window",
+            "Conversation Tree",
+            "Embedding Retrieval",
+            "Hybrid",
+        ],
     )
 
     context_length = st.sidebar.slider(
@@ -65,11 +92,11 @@ def BotOperator():
         step=1
     )
 
-    # Defaults
+    # Defaults for summary
     summary_min = 10
     summary_max = 1000
 
-    if mode == "Summarizing Window":
+    if mode == "Summarizing Window" or mode == "Hybrid":
         summary_min, summary_max = st.sidebar.slider(
             "Set Summary Length Range (min to max)",
             min_value=1,
@@ -78,8 +105,22 @@ def BotOperator():
             step=1
         )
 
-    if "context_mode" not in st.session_state or st.session_state.context_mode != mode:
+    if mode == "Hybrid":
+        st.info(
+            "Hybrid Mode combines recency, summarization, semantic search, and conversation trees for optimal memory and context handling."
+        )
+
+    if (
+        "context_mode" not in st.session_state
+        or st.session_state.context_mode != mode
+        or (mode in ["Summarizing Window", "Hybrid"] and (
+            st.session_state.get("summary_min", None) != summary_min or
+            st.session_state.get("summary_max", None) != summary_max
+        ))
+    ):
         st.session_state.context_mode = mode
+        st.session_state.summary_min = summary_min
+        st.session_state.summary_max = summary_max
         st.session_state.history_context = get_context_handler(
             mode,
             context_length=context_length,
@@ -95,10 +136,12 @@ def BotOperator():
     parent_labels = []
     parent_map = {}
 
+    # Enable parent tagging for ConversationTreeContext and HybridContextHandler
     with st.form(key="chat_form", clear_on_submit=True):
         show_parent_dropdown = (
-            isinstance(history_context, ConversationTreeContext)
-            and len(history_context.message_nodes) > 0
+            (isinstance(history_context, ConversationTreeContext) or isinstance(history_context, HybridContextHandler))
+            and hasattr(history_context, "message_nodes")
+            and len(getattr(history_context, "message_nodes", {})) > 0
         )
         if show_parent_dropdown:
             parent_options = [
@@ -117,7 +160,7 @@ def BotOperator():
                 index=default_index
             )
             parent_id = parent_map[selected_label]
-        elif isinstance(history_context, ConversationTreeContext):
+        elif isinstance(history_context, ConversationTreeContext) or isinstance(history_context, HybridContextHandler):
             st.info("No messages yet. Your first message will start the conversation.")
 
         user_input = st.text_input("Your message", key="user_input")
@@ -126,7 +169,7 @@ def BotOperator():
 
     if send and user_input.strip():
         with st.spinner("Thinking..."):
-            if isinstance(history_context, ConversationTreeContext):
+            if isinstance(history_context, ConversationTreeContext) or isinstance(history_context, HybridContextHandler):
                 response = get_response(user_input.strip(), history_context, parent_id=parent_id)
             else:
                 response = get_response(user_input.strip(), history_context)
