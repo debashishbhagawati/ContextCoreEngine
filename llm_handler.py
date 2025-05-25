@@ -20,7 +20,7 @@ def get_context_handler(mode, context_length=10, min_summary_length=10, max_summ
     elif mode == "Conversation Tree":
         return ConversationTreeContext(depth=context_length)
     elif mode == "Embedding Retrieval":
-        return EmbeddingRetrievalContext(max_recent_turns=context_length, top_k=3)
+        return EmbeddingRetrievalContext(max_recent_turns=context_length, top_k=10)
     return SlidingWindowContext(max_turns=context_length)
 
 def get_response(prompt, history_context, parent_id=None):
@@ -174,6 +174,3 @@ def BotOperator():
                 f'<div class="chat-bubble bot-bubble">🤖 <b>Bot:</b> {msg["text"]}</div>',
                 unsafe_allow_html=True,
             )
-
-if __name__ == "__main__":
-    BotOperator()

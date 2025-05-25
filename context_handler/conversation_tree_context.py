@@ -6,7 +6,6 @@ class MessageNode:
         self.parent_id = parent_id
         self.children_ids = []
 
-
 class ConversationTreeContext:
     def __init__(self, depth=20):
         self.message_nodes = {}
